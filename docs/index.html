@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Community Schema Index Optimization — Interactive Findings</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b1219;
+      --bg-elev: #121c26;
+      --panel: #16222e;
+      --line: rgba(46, 196, 182, 0.22);
+      --teal: #2ec4b6;
+      --teal-dim: #1a8a7e;
+      --text: #e8eef2;
+      --muted: #9aa8b5;
+      --pass: #5fd08a;
+      --warn: #f0a05a;
+      --fail: #e06c75;
+      --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: "Instrument Sans", system-ui, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(46, 196, 182, 0.16), transparent 55%),
+        radial-gradient(900px 500px at 90% 10%, rgba(26, 138, 126, 0.18), transparent 50%),
+        linear-gradient(160deg, #071018 0%, var(--bg) 45%, #0e1a22 100%);
+      background-attachment: fixed;
+      overflow: hidden;
+    }
+
+    .grain {
+      pointer-events: none;
+      position: fixed;
+      inset: 0;
+      opacity: 0.04;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      z-index: 0;
+    }
+
+    .shell {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 1rem 1.25rem 0.75rem;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--line);
+      animation: fadeDown 0.7s var(--ease) both;
+    }
+
+    .brand {
+      font-family: Syne, sans-serif;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      font-size: clamp(1rem, 2vw, 1.25rem);
+    }
+    .brand span { color: var(--teal); }
+
+    .controls { display: flex; gap: 0.5rem; align-items: center; }
+    button {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: rgba(22, 34, 46, 0.8);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 0.45rem 0.9rem;
+      font: 500 0.85rem/1 "Instrument Sans", sans-serif;
+      cursor: pointer;
+      transition: border-color 0.2s, transform 0.2s, background 0.2s;
+    }
+    button:hover { border-color: var(--teal); transform: translateY(-1px); }
+    button:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+    button.primary {
+      background: linear-gradient(135deg, var(--teal-dim), var(--teal));
+      border-color: transparent;
+      color: #061018;
+      font-weight: 700;
+    }
+
+    .progress {
+      flex: 1;
+      max-width: 280px;
+      height: 4px;
+      border-radius: 99px;
+      background: rgba(255,255,255,0.08);
+      overflow: hidden;
+    }
+    .progress > i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--teal-dim), var(--teal));
+      transition: width 0.45s var(--ease);
+    }
+
+    .deck {
+      position: relative;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      padding: 1.25rem 0.25rem 0.5rem;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateX(36px);
+      transition: opacity 0.45s var(--ease), transform 0.45s var(--ease), visibility 0.45s;
+      overflow: auto;
+    }
+    .slide.active {
+      opacity: 1;
+      visibility: visible;
+      transform: translateX(0);
+    }
+    .slide.leave-left { transform: translateX(-36px); opacity: 0; }
+
+    h1 {
+      font-family: Syne, sans-serif;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      font-size: clamp(2rem, 5vw, 3.4rem);
+      line-height: 1.05;
+      max-width: 18ch;
+    }
+    h2 {
+      font-family: Syne, sans-serif;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      font-size: clamp(1.5rem, 3.2vw, 2.2rem);
+      margin-bottom: 0.75rem;
+    }
+    .lede {
+      color: var(--muted);
+      font-size: clamp(1rem, 2vw, 1.2rem);
+      max-width: 52ch;
+      margin-top: 1rem;
+      line-height: 1.55;
+    }
+    .kicker {
+      color: var(--teal);
+      font-weight: 600;
+      font-size: 0.8rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 0.75rem;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 1.25rem;
+      align-items: start;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.9rem;
+    }
+    @media (max-width: 900px) {
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+      body { overflow: auto; }
+      .shell { height: auto; min-height: 100%; }
+      .deck { min-height: 70vh; }
+    }
+
+    .panel {
+      background: linear-gradient(180deg, rgba(22,34,46,0.92), rgba(18,28,38,0.85));
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 1rem 1.1rem;
+    }
+    .stat {
+      padding: 1rem;
+    }
+    .stat .num {
+      font-family: Syne, sans-serif;
+      font-size: clamp(1.8rem, 4vw, 2.6rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--teal);
+    }
+    .stat .label { color: var(--muted); margin-top: 0.25rem; font-size: 0.92rem; }
+
+    .chart-wrap {
+      position: relative;
+      height: min(340px, 48vh);
+      margin-top: 0.5rem;
+    }
+
+    pre, code { font-family: "JetBrains Mono", ui-monospace, monospace; }
+    pre {
+      background: #0a1016;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 1rem;
+      overflow: auto;
+      font-size: 0.78rem;
+      line-height: 1.55;
+      color: #cfe7e3;
+      max-height: min(360px, 48vh);
+    }
+    .tok-key { color: #7dd3c7; }
+    .tok-str { color: #f0c27a; }
+    .tok-cm { color: #6b7c8a; }
+
+    ul.findings { list-style: none; display: grid; gap: 0.65rem; }
+    ul.findings li {
+      padding: 0.75rem 0.9rem;
+      border-left: 3px solid var(--teal);
+      background: rgba(46, 196, 182, 0.06);
+      border-radius: 0 12px 12px 0;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    ul.findings li strong { color: var(--text); }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      border-radius: 999px;
+      padding: 0.2rem 0.65rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      border: 1px solid var(--line);
+    }
+    .badge.pass { color: var(--pass); border-color: rgba(95,208,138,0.35); }
+    .badge.fail { color: var(--fail); border-color: rgba(224,108,117,0.35); }
+    .badge.warn { color: var(--warn); border-color: rgba(240,160,90,0.35); }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    .table th, .table td {
+      text-align: left;
+      padding: 0.55rem 0.45rem;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .table th { color: var(--teal); font-weight: 600; }
+    .table td { color: var(--muted); }
+    .table td.em { color: var(--text); font-weight: 600; }
+
+    footer.bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.75rem 0;
+      color: var(--muted);
+      font-size: 0.8rem;
+      border-top: 1px solid var(--line);
+    }
+    .dots { display: flex; gap: 0.35rem; flex-wrap: wrap; justify-content: center; }
+    .dots button {
+      width: 9px; height: 9px; padding: 0; border-radius: 50%;
+      background: rgba(255,255,255,0.18);
+      border: none;
+    }
+    .dots button.on { background: var(--teal); transform: scale(1.25); }
+
+    .hero-cta { margin-top: 1.75rem; display: flex; gap: 0.75rem; flex-wrap: wrap; }
+
+    @keyframes fadeDown {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulseGlow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(46,196,182,0.0); }
+      50% { box-shadow: 0 0 28px 0 rgba(46,196,182,0.18); }
+    }
+    .glow { animation: pulseGlow 3.2s ease-in-out infinite; }
+
+    .kbd {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.72rem;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0.1rem 0.35rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+  <div class="shell">
+    <header>
+      <div class="brand">GraphRAG <span>Importer</span> · Community Schema</div>
+      <div class="progress" aria-hidden="true"><i id="progressBar"></i></div>
+      <div class="controls">
+        <button type="button" id="prevBtn" aria-label="Previous slide">← Prev</button>
+        <button type="button" class="primary" id="nextBtn" aria-label="Next slide">Next →</button>
+      </div>
+    </header>
+
+    <main class="deck" id="deck" aria-live="polite">
+      <!-- 0 -->
+      <section class="slide active" data-slide="0">
+        <p class="kicker">Interactive findings demo</p>
+        <h1>Optimize Community Schema query latency</h1>
+        <p class="lede">
+          Composite persistent index on <code>(partition_id, level)</code> with
+          <code>storedValues: occurrence</code> in <strong>graphrag_importer</strong>.
+          Decision: ship solution <strong>B (= A2)</strong>. Validated on ArangoDB 3.12.4.
+        </p>
+        <div class="hero-cta">
+          <button type="button" class="primary" id="startBtn">Start slideshow</button>
+          <span class="badge pass">Semi-live +1.34×–1.50×</span>
+          <span class="badge">Press <span class="kbd">→</span> or <span class="kbd">Space</span></span>
+        </div>
+      </section>
+
+      <!-- 1 Problem -->
+      <section class="slide" data-slide="1">
+        <div class="grid-2">
+          <div>
+            <p class="kicker">Problem</p>
+            <h2>Hot AQL path in the retriever</h2>
+            <p class="lede" style="margin-top:0">Filters by partition + level, returns three small fields — but Community docs are fat.</p>
+            <ul class="findings" style="margin-top:1.25rem">
+              <li><strong>Before:</strong> importer only created <code>partition_id_index</code></li>
+              <li><strong>Gap:</strong> no level in key; no covering <code>occurrence</code></li>
+              <li><strong>Ownership:</strong> latency in retriever; indexes must be created by importer</li>
+            </ul>
+          </div>
+          <div>
+            <pre><span class="tok-cm">// Community Schema query</span>
+<span class="tok-key">FOR</span> c <span class="tok-key">IN</span> @@communities_collection
+  <span class="tok-key">FILTER</span> c.partition_id <span class="tok-key">IN</span> @partition_ids
+  <span class="tok-key">FILTER</span> c.level &lt;= @level
+  <span class="tok-key">RETURN</span> {
+    _key: c._key,
+    level: c.level,
+    occurrence: c.occurrence
+  }</pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2 Ticket index -->
+      <section class="slide" data-slide="2">
+        <p class="kicker">Proposed solution</p>
+        <h2>Composite + storedValues</h2>
+        <div class="grid-2" style="margin-top:1rem">
+          <pre>db._collection(<span class="tok-str">"…_Communities"</span>).ensureIndex({
+  type: <span class="tok-str">"persistent"</span>,
+  fields: [<span class="tok-str">"partition_id"</span>, <span class="tok-str">"level"</span>],
+  storedValues: [<span class="tok-str">"occurrence"</span>],
+  name: <span class="tok-str">"partition_id_level_index"</span>,
+  inBackground: true
+});</pre>
+          <ul class="findings">
+            <li><strong>fields order</strong> matches <code>IN</code> then <code>&lt;=</code></li>
+            <li><strong>storedValues</strong> enables covering-style reads</li>
+            <li><strong>inBackground</strong> avoids blocking writes during build</li>
+            <li>Replace lone Communities <code>partition_id_index</code></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 3 Strategies -->
+      <section class="slide" data-slide="3">
+        <p class="kicker">Brainstorm scored</p>
+        <h2>Solutions A–F vs a 7-check rubric</h2>
+        <div class="grid-2" style="margin-top:0.75rem">
+          <div class="panel">
+            <div class="chart-wrap"><canvas id="chartRubric"></canvas></div>
+          </div>
+          <div>
+            <table class="table">
+              <thead><tr><th>ID</th><th>Idea</th><th>Verdict</th></tr></thead>
+              <tbody>
+                <tr><td class="em">B / A2</td><td>Composite + drop old (specs)</td><td><span class="badge pass">7/7 ship</span></td></tr>
+                <tr><td class="em">D</td><td>A2 + migration helper</td><td><span class="badge pass">7/7 companion</span></td></tr>
+                <tr><td>A1</td><td>Keep redundant index</td><td><span class="badge warn">6/7</span></td></tr>
+                <tr><td>C</td><td>No storedValues</td><td><span class="badge warn">6/7</span></td></tr>
+                <tr><td>baseline</td><td>partition_id only</td><td><span class="badge fail">3/7</span></td></tr>
+                <tr><td>E / F</td><td>Retriever / all cols</td><td><span class="badge fail">reject</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4 Decision -->
+      <section class="slide" data-slide="4">
+        <p class="kicker">Decision</p>
+        <h2>Ship B (= A2 behavior)</h2>
+        <div class="grid-3" style="margin-top:1rem">
+          <div class="panel stat glow">
+            <div class="num">B</div>
+            <div class="label">Data-driven specs as <code>PRODUCTION_STRATEGY</code></div>
+          </div>
+          <div class="panel stat">
+            <div class="num" style="font-size:1.4rem;padding-top:0.4rem">partition_id + level</div>
+            <div class="label">Composite key matching FILTER shape</div>
+          </div>
+          <div class="panel stat">
+            <div class="num" style="font-size:1.4rem;padding-top:0.4rem">storedValues</div>
+            <div class="label"><code>occurrence</code> for covering returns</div>
+          </div>
+        </div>
+        <ul class="findings" style="margin-top:1rem">
+          <li><strong>Communities only</strong> — other collections keep <code>partition_id_index</code></li>
+          <li><strong>Drop</strong> redundant Communities <code>partition_id_index</code></li>
+          <li><strong>Why not C:</strong> ticket requires storedValues; covering is half the win</li>
+        </ul>
+      </section>
+
+      <!-- 5 Scale latency -->
+      <section class="slide" data-slide="5">
+        <p class="kicker">Synthetic scale model</p>
+        <h2>Latency vs community count</h2>
+        <div class="panel" style="margin-top:0.5rem">
+          <div class="chart-wrap" style="height:min(380px,52vh)"><canvas id="chartScaleLatency"></canvas></div>
+        </div>
+        <p class="lede" style="margin-top:0.75rem;font-size:0.95rem">
+          At 250k docs: covering path <strong>3.89 ms</strong> vs baseline <strong>10.26 ms</strong> (model). Absolute ms are in-memory; trends match production intent.
+        </p>
+      </section>
+
+      <!-- 6 Scale bytes -->
+      <section class="slide" data-slide="6">
+        <div class="grid-2">
+          <div>
+            <p class="kicker">Cost model</p>
+            <h2>Full fetches &amp; bytes</h2>
+            <p class="lede" style="margin-top:0">Covering index keeps full document fetches at <strong>0</strong> and ~<strong>0.78%</strong> of baseline bytes across scales.</p>
+            <ul class="findings" style="margin-top:1rem">
+              <li><strong>baseline</strong> inspects all partition hits + fat docs</li>
+              <li><strong>C</strong> narrows level, still fetches docs</li>
+              <li><strong>A2/B/D</strong> returns from index payload</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <div class="chart-wrap"><canvas id="chartFetches"></canvas></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 7 Semi-live -->
+      <section class="slide" data-slide="7">
+        <p class="kicker">Semi-live · ArangoDB 3.12.4</p>
+        <h2>Real AQL before / after</h2>
+        <div class="grid-2" style="margin-top:0.5rem">
+          <div class="panel">
+            <div class="chart-wrap"><canvas id="chartSemiLive"></canvas></div>
+          </div>
+          <div>
+            <table class="table">
+              <thead><tr><th>Scale</th><th>Baseline</th><th>Solution B</th><th>Speedup</th></tr></thead>
+              <tbody>
+                <tr><td class="em">50k</td><td>18.63 ms</td><td>13.86 ms</td><td class="em">1.34×</td></tr>
+                <tr><td class="em">150k</td><td>55.40 ms</td><td>36.92 ms</td><td class="em">1.50×</td></tr>
+              </tbody>
+            </table>
+            <ul class="findings" style="margin-top:1rem">
+              <li><strong>EXPLAIN</strong> switched to <code>partition_id_level_index</code></li>
+              <li><strong>storedValues</strong> <code>["occurrence"]</code> confirmed on live index</li>
+              <li><strong>Result counts</strong> identical across phases</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- 8 Code -->
+      <section class="slide" data-slide="8">
+        <p class="kicker">Implementation</p>
+        <h2>Importer production path</h2>
+        <div class="grid-2" style="margin-top:0.5rem">
+          <pre><span class="tok-cm"># partition_index_strategies.py</span>
+PRODUCTION_STRATEGY = IndexStrategy.B
+
+COMMUNITY_COMPOSITE_SPEC = IndexSpec(
+  name=<span class="tok-str">"partition_id_level_index"</span>,
+  fields=(<span class="tok-str">"partition_id"</span>, <span class="tok-str">"level"</span>),
+  stored_values=(<span class="tok-str">"occurrence"</span>,),
+)
+
+<span class="tok-cm"># import_graph_to_adb.py · initialize()</span>
+<span class="tok-key">if</span> self.partition_id:
+  <span class="tok-key">await</span> self._ensure_partition_indexes(
+    strategy=PRODUCTION_STRATEGY
+  )</pre>
+          <ul class="findings">
+            <li><strong>Module:</strong> <code>graphrag/importer/partition_index_strategies.py</code></li>
+            <li><strong>Apply:</strong> <code>_ensure_partition_indexes()</code></li>
+            <li><strong>API:</strong> <code>create_persistent_index(..., stored_values=)</code></li>
+            <li><strong>Migrate:</strong> <code>scripts/migrate_communities_partition_level_index.py</code></li>
+            <li><strong>PR:</strong> arangoml/graphrag_importer#227</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 9 Closing -->
+      <section class="slide" data-slide="9">
+        <p class="kicker">Bottom line</p>
+        <h1 style="max-width:22ch">Ship B. Measure more. Migrate live DBs.</h1>
+        <div class="grid-3" style="margin-top:1.5rem">
+          <div class="panel stat">
+            <div class="num">7/7</div>
+            <div class="label">Rubric score for A2 / B / D</div>
+          </div>
+          <div class="panel stat">
+            <div class="num">1.5×</div>
+            <div class="label">Semi-live speedup at 150k docs</div>
+          </div>
+          <div class="panel stat">
+            <div class="num">0</div>
+            <div class="label">Full doc fetches on covering path</div>
+          </div>
+        </div>
+        <p class="lede">
+          Follow-ups: integration assert after import · Option D migration on existing DBs · retriever p50/p95 on real workloads.
+        </p>
+      </section>
+    </main>
+
+    <footer class="bar">
+      <div>Use ← → / Space · Esc resets</div>
+      <div class="dots" id="dots" role="tablist" aria-label="Slides"></div>
+      <div id="slideLabel">1 / 10</div>
+    </footer>
+  </div>
+
+  <script>
+    const DATA = {
+      scales: [1000, 5000, 10000, 50000, 100000, 250000],
+      latency: {
+        baseline: [0.030, 0.100, 0.194, 1.984, 3.972, 10.264],
+        C: [0.013, 0.056, 0.114, 1.175, 2.519, 7.100],
+        A2_B_D: [0.009, 0.040, 0.077, 0.651, 1.402, 3.893],
+      },
+      fetches250k: {
+        labels: ["baseline", "C", "A2/B/D"],
+        full: [37295, 18604, 0],
+        bytesMB: [145.7, 72.7, 1.14],
+      },
+      rubric: {
+        labels: ["baseline", "A1", "A2", "B", "C", "D", "E", "F"],
+        scores: [3, 6, 7, 7, 6, 7, 1, 5],
+        colors: ["#e06c75", "#f0a05a", "#5fd08a", "#5fd08a", "#f0a05a", "#5fd08a", "#e06c75", "#e06c75"],
+      },
+      semiLive: {
+        labels: ["50k docs", "150k docs"],
+        baseline: [18.627, 55.401],
+        solutionB: [13.862, 36.918],
+      },
+    };
+
+    const slides = [...document.querySelectorAll(".slide")];
+    const total = slides.length;
+    let idx = 0;
+    const charts = {};
+
+    const progressBar = document.getElementById("progressBar");
+    const slideLabel = document.getElementById("slideLabel");
+    const dots = document.getElementById("dots");
+    const prevBtn = document.getElementById("prevBtn");
+    const nextBtn = document.getElementById("nextBtn");
+
+    slides.forEach((_, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("aria-label", `Go to slide ${i + 1}`);
+      b.addEventListener("click", () => go(i));
+      dots.appendChild(b);
+    });
+
+    function tealGradient(ctx, chartArea) {
+      const g = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+      g.addColorStop(0, "rgba(46,196,182,0.05)");
+      g.addColorStop(1, "rgba(46,196,182,0.55)");
+      return g;
+    }
+
+    const chartDefaults = {
+      color: "#9aa8b5",
+      borderColor: "rgba(255,255,255,0.08)",
+      font: { family: "Instrument Sans" },
+    };
+    Chart.defaults.color = chartDefaults.color;
+    Chart.defaults.font.family = chartDefaults.font.family;
+    Chart.defaults.plugins.legend.labels.boxWidth = 12;
+
+    function ensureCharts(i) {
+      if (i === 3 && !charts.rubric) {
+        charts.rubric = new Chart(document.getElementById("chartRubric"), {
+          type: "bar",
+          data: {
+            labels: DATA.rubric.labels,
+            datasets: [{
+              label: "Rubric score / 7",
+              data: DATA.rubric.scores,
+              backgroundColor: DATA.rubric.colors,
+              borderRadius: 8,
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              y: { min: 0, max: 7, grid: { color: "rgba(255,255,255,0.06)" } },
+              x: { grid: { display: false } },
+            },
+            plugins: { legend: { display: false } },
+            animation: { duration: 900, easing: "easeOutQuart" },
+          },
+        });
+      }
+      if (i === 5 && !charts.scale) {
+        charts.scale = new Chart(document.getElementById("chartScaleLatency"), {
+          type: "line",
+          data: {
+            labels: DATA.scales.map((n) => n.toLocaleString()),
+            datasets: [
+              {
+                label: "baseline",
+                data: DATA.latency.baseline,
+                borderColor: "#e06c75",
+                backgroundColor: "rgba(224,108,117,0.12)",
+                tension: 0.28,
+                fill: false,
+                pointRadius: 3,
+              },
+              {
+                label: "C (composite)",
+                data: DATA.latency.C,
+                borderColor: "#f0a05a",
+                tension: 0.28,
+                fill: false,
+                pointRadius: 3,
+              },
+              {
+                label: "A2 / B / D (covering)",
+                data: DATA.latency.A2_B_D,
+                borderColor: "#2ec4b6",
+                backgroundColor: (ctx) => {
+                  const { chart } = ctx;
+                  const { ctx: c, chartArea } = chart;
+                  if (!chartArea) return "rgba(46,196,182,0.2)";
+                  return tealGradient(c, chartArea);
+                },
+                tension: 0.28,
+                fill: true,
+                pointRadius: 4,
+                borderWidth: 3,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            scales: {
+              y: {
+                title: { display: true, text: "median ms (model)" },
+                grid: { color: "rgba(255,255,255,0.06)" },
+                type: "logarithmic",
+              },
+              x: {
+                title: { display: true, text: "community documents" },
+                grid: { display: false },
+              },
+            },
+            animation: { duration: 1100, easing: "easeOutQuart" },
+          },
+        });
+      }
+      if (i === 6 && !charts.fetches) {
+        charts.fetches = new Chart(document.getElementById("chartFetches"), {
+          type: "bar",
+          data: {
+            labels: DATA.fetches250k.labels,
+            datasets: [
+              {
+                label: "Full doc fetches @ 250k",
+                data: DATA.fetches250k.full,
+                backgroundColor: ["#e06c75", "#f0a05a", "#2ec4b6"],
+                borderRadius: 10,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  afterBody: (items) => {
+                    const i = items[0].dataIndex;
+                    return `Approx bytes: ${DATA.fetches250k.bytesMB[i]} MB`;
+                  },
+                },
+              },
+            },
+            scales: {
+              y: {
+                title: { display: true, text: "full document fetches" },
+                grid: { color: "rgba(255,255,255,0.06)" },
+              },
+              x: { grid: { display: false } },
+            },
+            animation: { duration: 1000 },
+          },
+        });
+      }
+      if (i === 7 && !charts.semi) {
+        charts.semi = new Chart(document.getElementById("chartSemiLive"), {
+          type: "bar",
+          data: {
+            labels: DATA.semiLive.labels,
+            datasets: [
+              {
+                label: "baseline (partition_id_index)",
+                data: DATA.semiLive.baseline,
+                backgroundColor: "rgba(224,108,117,0.85)",
+                borderRadius: 10,
+              },
+              {
+                label: "solution B (partition_id_level_index)",
+                data: DATA.semiLive.solutionB,
+                backgroundColor: "rgba(46,196,182,0.9)",
+                borderRadius: 10,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              y: {
+                title: { display: true, text: "median ms (real AQL)" },
+                grid: { color: "rgba(255,255,255,0.06)" },
+              },
+              x: { grid: { display: false } },
+            },
+            animation: { duration: 1000 },
+          },
+        });
+      }
+    }
+
+    function go(n) {
+      const next = Math.max(0, Math.min(total - 1, n));
+      if (next === idx && slides[idx].classList.contains("active")) {
+        ensureCharts(next);
+        return;
+      }
+      slides[idx].classList.remove("active");
+      idx = next;
+      slides[idx].classList.add("active");
+      progressBar.style.width = `${((idx + 1) / total) * 100}%`;
+      slideLabel.textContent = `${idx + 1} / ${total}`;
+      [...dots.children].forEach((d, i) => d.classList.toggle("on", i === idx));
+      prevBtn.disabled = idx === 0;
+      nextBtn.disabled = idx === total - 1;
+      ensureCharts(idx);
+    }
+
+    prevBtn.addEventListener("click", () => go(idx - 1));
+    nextBtn.addEventListener("click", () => go(idx + 1));
+    document.getElementById("startBtn").addEventListener("click", () => go(1));
+
+    window.addEventListener("keydown", (e) => {
+      if (["ArrowRight", "PageDown", " "].includes(e.key)) {
+        e.preventDefault();
+        go(idx + 1);
+      } else if (["ArrowLeft", "PageUp"].includes(e.key)) {
+        e.preventDefault();
+        go(idx - 1);
+      } else if (e.key === "Escape") {
+        go(0);
+      } else if (e.key === "Home") {
+        go(0);
+      } else if (e.key === "End") {
+        go(total - 1);
+      }
+    });
+
+    go(0);
+  </script>
+</body>
+</html>

@@ -1,12 +1,13 @@
-# Community Schema optimization — stakeholder pack
+# Stakeholder pack
 
 | Artifact | Description |
 |----------|-------------|
-| [**Full report**](community_schema_optimization_full_report.md) | End-to-end narrative: problem → brainstorm → decision → implementation → tests |
-| [**PowerPoint**](community_schema_optimization_deck.pptx) | 13-slide deck (regenerate via `scripts/generate_community_schema_deck.py`) |
-| [Decision](community_schema_index_decision.md) | Accepted solution B (= A2) |
-| [Strategy results](community_schema_index_results.md) | Rubric comparison A–F |
-| [Scale bench](scale_bench/) | Synthetic multi-size model |
-| [Semi-live](semi_live/) | Real ArangoDB 3.12.4 AQL / EXPLAIN |
+| [**Mentor note**](10-mentor-update.md) | Short message to send |
+| [**Findings one-pager**](09-findings-summary.md) | Headline numbers |
+| [**Pilot findings report**](08-pilot-retriever-findings.md) | Full narrative |
+| [**US DEV build request**](community_schema_us_dev_build_request.md) | Deploy + timing table |
+| [**Interactive slideshow**](interactive/index.html) | Charts |
+| [**PowerPoint**](Community_Schema_Optimization.pptx) | Deck |
+| [Full report](06-full-report.md) | Earlier end-to-end write-up |
 
-PR: https://github.com/arangoml/graphrag_importer/pull/227
+**PR:** https://github.com/arangoml/graphrag_importer/pull/228 · image `v0.0.30-ae18835`
